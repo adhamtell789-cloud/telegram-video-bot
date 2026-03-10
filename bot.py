@@ -1,93 +1,145 @@
-import telebot
-import yt_dlp
 import os
-from flask import Flask
-from threading import Thread
+import time
+import json
+import yt_dlp
+import telebot
 
-TOKEN = os.environ.get("TOKEN")
+TOKEN = os.getenv("TOKEN")
 
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-# رسالة البداية
+ADMIN_ID = 8273617578
+
+USERS_FILE = "users.json"
+COOLDOWN = {}
+
+if not os.path.exists(USERS_FILE):
+    with open(USERS_FILE, "w") as f:
+        json.dump([], f)
+
+def load_users():
+    with open(USERS_FILE) as f:
+        return json.load(f)
+
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f)
+
+def add_user(user_id):
+    users = load_users()
+    if user_id not in users:
+        users.append(user_id)
+        save_users(users)
+
 @bot.message_handler(commands=['start'])
 def start(message):
 
-    text = (
-        "👋 مرحباً بك في بوت تحميل الفيديو\n\n"
-        "أرسل رابط فيديو من:\n\n"
-        "• TikTok\n"
-        "• Instagram\n"
-        "• YouTube\n"
-        "• Facebook\n"
-        "• Twitter / X\n\n"
-        "وسأقوم بتحميله لك فوراً 📥"
-    )
+    add_user(message.from_user.id)
+
+    text = """
+👋 مرحباً بك في بوت تحميل الفيديوهات
+
+📥 أرسل رابط فيديو من:
+
+• TikTok
+• Instagram
+• Facebook
+• Twitter
+• YouTube
+
+وسيتم تحميله بدون علامة مائية.
+"""
 
     bot.reply_to(message, text)
 
+@bot.message_handler(commands=['stats'])
+def stats(message):
 
-# تحميل الفيديو
-@bot.message_handler(func=lambda message: True)
-def download_video(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    users = load_users()
+
+    bot.send_message(
+        message.chat.id,
+        f"📊 عدد مستخدمي البوت: {len(users)}"
+    )
+
+@bot.message_handler(commands=['broadcast'])
+def broadcast(message):
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    text = message.text.replace("/broadcast ", "")
+
+    users = load_users()
+
+    sent = 0
+
+    for user in users:
+
+        try:
+            bot.send_message(user, text)
+            sent += 1
+        except:
+            pass
+
+    bot.send_message(message.chat.id, f"✅ تم الإرسال إلى {sent}")
+
+def download_video(url):
+
+    ydl_opts = {
+        "format": "best",
+        "outtmpl": "video.%(ext)s",
+        "noplaylist": True,
+        "quiet": True
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return ydl.prepare_filename(info)
+
+@bot.message_handler(func=lambda m: "http" in m.text)
+def handle_link(message):
+
+    user_id = message.from_user.id
+
+    if user_id in COOLDOWN and time.time() - COOLDOWN[user_id] < 8:
+        bot.reply_to(message, "⏳ انتظر قليلاً قبل إرسال رابط آخر")
+        return
+
+    COOLDOWN[user_id] = time.time()
 
     url = message.text
 
     msg = bot.reply_to(message, "⏳ جاري تحميل الفيديو...")
 
-    ydl_opts = {
-        'format': 'best[ext=mp4][height<=720]',
-        'outtmpl': 'video.%(ext)s',
-        'noplaylist': True,
-        'quiet': True
-    }
-
     try:
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
+        file = download_video(url)
 
-        bot.edit_message_text(
-            "📤 جاري إرسال الفيديو...",
-            message.chat.id,
-            msg.message_id
-        )
-
-        with open(filename, 'rb') as video:
+        with open(file, "rb") as video:
             bot.send_video(message.chat.id, video)
 
-        os.remove(filename)
+        os.remove(file)
+
+        bot.delete_message(message.chat.id, msg.message_id)
 
     except Exception as e:
 
-        bot.edit_message_text(
-            "❌ لم أستطع تحميل هذا الرابط.\n"
-            "تأكد أن الرابط صحيح.",
-            message.chat.id,
-            msg.message_id
-        )
+        bot.reply_to(message, "❌ لم أستطع تحميل الفيديو")
 
+while True:
 
-# إبقاء السيرفر يعمل
-app = Flask(__name__)
+    try:
 
-@app.route('/')
-def home():
-    return "Bot is running"
+        print("Bot running...")
 
+        bot.infinity_polling(timeout=60, long_polling_timeout=60)
 
-def run():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    except Exception as e:
 
+        print("Error:", e)
 
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-
-keep_alive()
-
-bot.infinity_polling()
-
-        
+        time.sleep(5)
