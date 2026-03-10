@@ -10,32 +10,40 @@ bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "👋 أرسل رابط الفيديو وسأقوم بتحميله لك.")
+    bot.reply_to(message, 
+    "👋 مرحباً!\n\n"
+    "أرسل رابط الفيديو أو الريلز أو المنشور وسأقوم بتحميله لك.\n\n"
+    "المواقع المدعومة:\n"
+    "TikTok\nInstagram\nYouTube\nFacebook\nTwitter")
 
 @bot.message_handler(func=lambda message: True)
 def download_video(message):
+
     url = message.text
-    bot.reply_to(message, "⏳ جاري تحميل الفيديو...")
+
+    bot.reply_to(message,"⏳ جاري تحميل الفيديو...")
 
     ydl_opts = {
         'format': 'best',
-        'outtmpl': 'video.%(ext)s'
+        'outtmpl': 'video.%(ext)s',
+        'noplaylist': True
     }
 
     try:
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
 
-        with open(filename, 'rb') as video:
+        with open(filename,'rb') as video:
             bot.send_video(message.chat.id, video)
 
         os.remove(filename)
 
     except Exception as e:
-        bot.reply_to(message, "❌ حدث خطأ أثناء التحميل")
+        bot.reply_to(message,"❌ لم أستطع تحميل هذا الرابط.")
 
-# ---- حل مشكلة Render (فتح Port) ----
+# -------- حل مشكلة Render --------
 
 app = Flask(__name__)
 
@@ -44,7 +52,7 @@ def home():
     return "Bot is running"
 
 def run():
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT",10000))
     app.run(host="0.0.0.0", port=port)
 
 def keep_alive():
